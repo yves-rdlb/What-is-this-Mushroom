@@ -32,7 +32,7 @@ def save_model_gcs(model: keras.Model = None) -> None:
     print("✅ Model saved to GCS")
     return None
 
-def load_model_gcs(stage="Production") -> keras.Model:
+def load_model_gcs() -> keras.Model:
 
     client = storage.Client()
     blobs = list(client.get_bucket(BUCKET_NAME).list_blobs(prefix="model"))
