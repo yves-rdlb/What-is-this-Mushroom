@@ -232,7 +232,6 @@ def evaluate_model(model,test_data) :
     evaluation=model.evaluate(test_data)
     return evaluation
 
-
 ################# Functions for the prediction #####################
 
 def preprocess_for_predict(img_path) :
