@@ -6,3 +6,8 @@ tensorflow
 keras
 matplotlib
 seaborn
+
+
+#API
+fastapi
+uvicorn
