@@ -4,7 +4,18 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# Import Model
+# from MUSHROOM import ...
+
+# Import Preprocessing
+# from MUSHROOM import
+
 app = FastAPI()
+
+# Load model
+# app.state.model =
+
+
 
 app.add_middleware(
     CORSMiddleware,
