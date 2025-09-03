@@ -20,8 +20,7 @@ def load_mushroom_data(
             - species (cleaned name from label)
             - edible (int: 0 = edible, 1 = not edible)
     """
-    # Resolve project root relative to this file. This file now lives at repo root,
-    # so its parent is the correct base directory for default paths.
+
     PROJECT_ROOT = Path(__file__).resolve().parent
 
     if train_path is None:
@@ -29,16 +28,16 @@ def load_mushroom_data(
     if edibility_path is None:
         edibility_path = PROJECT_ROOT / "data" / "metadata" / "species_edibility.csv"
 
-    # Load training data
+
     df = pd.read_csv(train_path)
     df["species"] = df["label"].str.split("/").str[-1].str.strip()
 
-    # Load edibility map
+
     ed = pd.read_csv(edibility_path)
-    # Normalize column names (strip + lower) and handle missing 'edible'
+
     ed.columns = ed.columns.str.strip().str.lower()
 
-    # Ensure a 'species' column exists in mapping
+
     if "species" not in ed.columns:
         alt = [c for c in ed.columns if "species" in c]
         if alt:
@@ -46,12 +45,11 @@ def load_mushroom_data(
         else:
             raise KeyError("species_edibility.csv must contain a 'species' column")
 
-    # Build or normalize the 'edible' column to 0/1 where
-    # 0 = edible, 1 = not edible (safer default for unknowns)
+
     if "edible" not in ed.columns:
         ed["edible"] = 1
     else:
-        # If textual, map common labels
+
         if ed["edible"].dtype == object:
             mapping = {
                 "edible": 0,
@@ -67,10 +65,10 @@ def load_mushroom_data(
             ed["edible"] = (
                 ed["edible"].astype(str).str.strip().str.lower().map(mapping)
             )
-        # Default any unmapped/NaN to 1 (not edible)
+
         ed["edible"] = ed["edible"].fillna(1).astype(int)
 
-    # Merge
+
     df = df.merge(ed, on="species", how="left")
 
     # Unknown species → code 1 (not edible)

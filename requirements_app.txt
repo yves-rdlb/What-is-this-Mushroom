@@ -1,0 +1,7 @@
+streamlit
+pillow
+requests
+numpy
+pandas
+# uncomment if running local TF inference from the UI:
+tensorflow==2.16.*
