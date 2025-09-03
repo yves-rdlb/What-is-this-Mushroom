@@ -1,8 +1,13 @@
 # TODO: Import your package, replace this by explicit imports of what you need
 # from MUSHROOM.main import predict
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from PIL import Image
+import io
+
+from tensorflow import keras
 
 # Import Model
 # from MUSHROOM import ...
@@ -13,8 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI()
 
 # Load model
-# app.state.model =
-
+app.state.model = keras.models.load_model('/home/max/code/yves-rdlb/What-is-this-Mushroom/models/mushroom_model_EfficientNetV2B0_6.keras')
 
 
 app.add_middleware(
@@ -31,6 +35,23 @@ def root():
     return {
         'message': "Hi, The API is running!"
     }
+
+@app.post("/predict/")
+async def predict(file: UploadFile = File(...)):
+    try:
+        # Read file as bytes
+        contents = await file.read()
+
+        # Convert to PIL Image
+        image = Image.open(io.BytesIO(contents))
+
+        # Run your model prediction
+        prediction = predict_mushroom(image)
+
+        return JSONResponse(content={"filename": file.filename, "prediction": prediction})
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=400)
+
 
 # Endpoint for https://your-domain.com/predict?input_one=154&input_two=199
 @app.get("/predict")
