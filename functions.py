@@ -168,7 +168,7 @@ def add_edibility(df) :
     "Trametes betulina": 1,
     "Trametes gibbosa": 1,
     "Trametes hirsuta": 1,
-    "Trametes ochracea": 1,s
+    "Trametes ochracea": 1,
     "Trametes versicolor": 1,
     "Tremella mesenterica": 0,
     "Trichaptum biforme": 1,
