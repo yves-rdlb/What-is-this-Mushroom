@@ -46,3 +46,5 @@ secrets.toml
 # User defined extras
 # Complete to your desire
 raw_data/
+
+*.keras
