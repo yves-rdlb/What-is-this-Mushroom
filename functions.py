@@ -7,6 +7,7 @@ from keras import layers, models
 import pandas as pd
 import numpy as np
 from keras.callbacks import EarlyStopping
+from PIL import Image
 
 #creating a function to add edibility criteria and drop duplicates
 def add_edibility(df) :
@@ -230,3 +231,22 @@ def model_fitting(model,train_data,validation_data,epochs=10) :
 def evaluate_model(model,test_data) :
     evaluation=model.evaluate(test_data)
     return evaluation
+
+################# Functions for the prediction #####################
+
+def preprocess_for_predict(img_path) :
+    img=Image.open(img_path)
+    img=img.resize((224,224))
+    arr=np.array(img).astype('float32')
+    arr=arr/255.0
+    arr.shape
+    arr=np.expand_dims(arr,axis=0)
+    return arr
+
+def predict(model,img,train_data):
+    index_to_class={v :k for k,v in train_data.class_indices.items()}
+    prediction=model.predict(img)
+    index=np.argmax(prediction[0])
+    proba=round(max(prediction[0])*100,2)
+    mushroom=index_to_class.get(index)
+    return mushroom,f"{proba}%"
