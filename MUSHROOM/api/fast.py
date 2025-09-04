@@ -3,6 +3,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
 import io
+<<<<<<< HEAD
+from tensorflow import keras
+
+# Import Model
+from MUSHROOM.model_functions.save_load import load_model_gcs
+
+# Import Preprocessing
+from MUSHROOM.model_functions.functions import preprocess_for_predict
+
+app = FastAPI()
+
+# Load model
+app.state.model = load_model_gcs()
+
+=======
 from pathlib import Path
 import json
 from tensorflow import keras
@@ -11,6 +26,7 @@ import os
 
 app = FastAPI()
 
+>>>>>>> master
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allows all origins
