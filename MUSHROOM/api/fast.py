@@ -1,25 +1,15 @@
-# TODO: Import your package, replace this by explicit imports of what you need
-# from MUSHROOM.main import predict
-
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
 import io
-
+from pathlib import Path
+import json
 from tensorflow import keras
-
-# Import Model
-# from MUSHROOM import ...
-
-# Import Preprocessing
-# from MUSHROOM import
+import numpy as np
+import os
 
 app = FastAPI()
-
-# Load model
-app.state.model = keras.models.load_model('/home/max/code/yves-rdlb/What-is-this-Mushroom/models/mushroom_model_EfficientNetV2B0_6.keras')
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,6 +18,30 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
+
+
+# Get current file's directory and go up 2 levels
+CURRENT_DIR = Path(__file__).parent  # MUSHROOM/api/
+base_dir = CURRENT_DIR.parent.parent  # Project root
+
+model_path = base_dir / "model" / "mushroom_model_EfficientNetV2B0_6.keras"
+label_path = base_dir / "model" / "class_indices.json"
+
+
+app.state.model = keras.models.load_model(model_path)
+
+# load labels + # Load label mapping
+#label_path = base_dir / "model" / "class_indices.json"
+
+with open(label_path, "r", encoding="utf-8") as f:
+    map = json.load(f)
+    app.state.class_labels = {int(v): k for k, v in map.items()}
+
+
+# Import Preprocessing
+# from MUSHROOM import
+
+
 
 # Endpoint for https://your-domain.com/
 @app.get("/")
@@ -43,28 +57,26 @@ async def predict(file: UploadFile = File(...)):
         contents = await file.read()
 
         # Convert to PIL Image
-        image = Image.open(io.BytesIO(contents))
-
+        image = Image.open(io.BytesIO(contents)).convert('RGB') # to match preprocessing
+        image = image.resize((224,224))
+        img=np.array(image).astype('float32') /255.0
+        img=np.expand_dims(img, axis=0)
+        
         # Run your model prediction
-        prediction = predict_mushroom(image)
+        model = app.state.model
+        index_to_class = app.state.class_labels
+        
+        prediction=model.predict(img)
+        index=int(np.argmax(prediction[0]))
+        proba = round(np.max(prediction[0]) * 100, 2)  
+        mushroom=index_to_class.get(index, f"class_{index}")
 
-        return JSONResponse(content={"filename": file.filename, "prediction": prediction})
+        return JSONResponse(
+            content={
+                "filename": file.filename, 
+                "prediction": {
+                               'class': mushroom,
+                               'index': index,
+                               'confidence': proba}})
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=400)
-
-
-# Endpoint for https://your-domain.com/predict?input_one=154&input_two=199
-@app.get("/predict")
-def get_predict(input_one: float,
-            input_two: float):
-    # TODO: Do something with your input
-    # i.e. feed it to your model.predict, and return the output
-    # For a dummy version, just return the sum of the two inputs and the original inputs
-    prediction = float(input_one) + float(input_two)
-    return {
-        'prediction': prediction,
-        'inputs': {
-            'input_one': input_one,
-            'input_two': input_two
-        }
-    }
