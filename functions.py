@@ -243,7 +243,7 @@ def preprocess_for_predict(img_path) :
     arr=np.expand_dims(arr,axis=0)
     return arr
 
-def predict(model,img,train_data):
+def predict(model,img):
     index_to_class={0: 'Agaricus augustus',
         1: 'Agaricus xanthodermus',
         2: 'Amanita amerirubescens',
