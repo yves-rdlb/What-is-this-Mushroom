@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 from keras.callbacks import EarlyStopping
 from PIL import Image
+import os, zipfile, requests
 
 #creating a function to add edibility criteria and drop duplicates
 def add_edibility(df) :
@@ -425,7 +426,22 @@ def predict(model,img):
 ########################## FUNCTIONS ESPECIALLY FOR THE VIT MODEL ##################################
 
 
-def load_vit_model(model_directory_path) :
+def load_vit_model(url="https://github.com/yves-rdlb/What-is-this-Mushroom/releases/download/vit_saved_model_v0/vit_saved_model.zip") :
+    os.makedirs("models", exist_ok=True)
+    zip_path = "models/vit_saved_model.zip"
+
+    # download
+    r = requests.get(url, stream=True)
+    with open(zip_path, "wb") as f:
+        for chunk in r.iter_content(8192):
+            f.write(chunk)
+
+    # extract
+    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+        zip_ref.extractall("models")
+
+
+    model_directory_path="models/vit_saved_model"
     reloaded=tf.saved_model.load(model_directory_path)
     infer=reloaded.signatures['serving_default']
     return infer
