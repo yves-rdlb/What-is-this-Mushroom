@@ -9,6 +9,9 @@ from tensorflow import keras
 import numpy as np
 #import os
 
+from tensorflow.keras.applications.efficientnet_v2 import preprocess_input
+
+
 app = FastAPI()
 
 app.add_middleware(
@@ -50,14 +53,17 @@ async def predict(file: UploadFile = File(...)):
         # Convert to PIL Image
         image = Image.open(io.BytesIO(contents)).convert('RGB') # to match preprocessing
         image = image.resize((224,224))
-        img=np.array(image).astype('float32') /255.0
-        img=np.expand_dims(img, axis=0)
+        #img=np.array(image).astype('float32') /255.0
+        image=np.expand_dims(image, axis=0)
+
+        image = preprocess_input(image)
+
 
         # Run your model prediction
         model = app.state.model
         index_to_class = app.state.class_labels
 
-        prediction=model.predict(img)
+        prediction=model.predict(image)
         index=int(np.argmax(prediction[0]))
         proba = round(np.max(prediction[0]) * 100, 2)
         mushroom=index_to_class.get(index, f"class_{index}")
