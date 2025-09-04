@@ -21,6 +21,7 @@ def save_model_gcs(model: keras.Model = None) -> None:
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     model_path = os.path.join(LOCAL_MODEL_PATH, "model", f"{timestamp}.h5")
     model.save(model_path)
+    
     print("✅ Model saved locally")
 
     model_filename = model_path.split("/")[-1] # e.g. "20230208-161047.h5" for instance
