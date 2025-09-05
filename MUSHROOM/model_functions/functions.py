@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 from keras.callbacks import EarlyStopping
 from PIL import Image
+import os, zipfile, requests
 
 #creating a function to add edibility criteria and drop duplicates
 def add_edibility(df) :
@@ -416,5 +417,218 @@ def predict(model,img):
     prediction=model.predict(img)
     index=np.argmax(prediction[0])
     proba=round(max(prediction[0])*100,2)
+    mushroom=index_to_class.get(index)
+    return mushroom,f"{proba}%"
+
+
+
+
+########################## FUNCTIONS ESPECIALLY FOR THE VIT MODEL ##################################
+
+
+def load_vit_model(url="https://github.com/yves-rdlb/What-is-this-Mushroom/releases/download/vit_saved_model_v0/vit_saved_model.zip") :
+    os.makedirs("models", exist_ok=True)
+    zip_path = "models/vit_saved_model.zip"
+
+    # download
+    r = requests.get(url, stream=True)
+    with open(zip_path, "wb") as f:
+        for chunk in r.iter_content(8192):
+            f.write(chunk)
+
+    # extract
+    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+        zip_ref.extractall("models")
+
+
+    model_directory_path="models/vit_saved_model"
+    reloaded=tf.saved_model.load(model_directory_path)
+    infer=reloaded.signatures['serving_default']
+    return infer
+
+def vit_preprocess_for_predict(img_path) :
+    img=Image.open(img_path)
+    img=img.resize((224,224))
+    arr=np.array(img).astype('float32')
+    arr=arr/255.0
+    arr.shape
+    arr=np.expand_dims(arr,axis=0)
+    arr=tf.constant(arr,dtype=tf.float32)
+    return arr
+
+def vit_predict(infer,preprocessed_img,index_to_class) :
+    index_to_class={0: 'Agaricus augustus',
+        1: 'Agaricus xanthodermus',
+        2: 'Amanita amerirubescens',
+        3: 'Amanita augusta',
+        4: 'Amanita brunnescens',
+        5: 'Amanita calyptroderma',
+        6: 'Amanita citrina',
+        7: 'Amanita flavoconia',
+        8: 'Amanita muscaria',
+        9: 'Amanita pantherina',
+        10: 'Amanita persicina',
+        11: 'Amanita phalloides',
+        12: 'Amanita rubescens',
+        13: 'Amanita velosa',
+        14: 'Apioperdon pyriforme',
+        15: 'Armillaria borealis',
+        16: 'Armillaria mellea',
+        17: 'Armillaria tabescens',
+        18: 'Artomyces pyxidatus',
+        19: 'Bjerkandera adusta',
+        20: 'Bolbitius titubans',
+        21: 'Boletus edulis',
+        22: 'Boletus pallidus',
+        23: 'Boletus reticulatus',
+        24: 'Boletus rex-veris',
+        25: 'Calocera viscosa',
+        26: 'Calycina citrina',
+        27: 'Cantharellus californicus',
+        28: 'Cantharellus cibarius',
+        29: 'Cantharellus cinnabarinus',
+        30: 'Cerioporus squamosus',
+        31: 'Cetraria islandica',
+        32: 'Chlorociboria aeruginascens',
+        33: 'Chlorophyllum brunneum',
+        34: 'Chlorophyllum molybdites',
+        35: 'Chondrostereum purpureum',
+        36: 'Cladonia fimbriata',
+        37: 'Cladonia rangiferina',
+        38: 'Cladonia stellaris',
+        39: 'Clitocybe nebularis',
+        40: 'Clitocybe nuda',
+        41: 'Coltricia perennis',
+        42: 'Coprinellus disseminatus',
+        43: 'Coprinellus micaceus',
+        44: 'Coprinopsis atramentaria',
+        45: 'Coprinopsis lagopus',
+        46: 'Coprinus comatus',
+        47: 'Crucibulum laeve',
+        48: 'Cryptoporus volvatus',
+        49: 'Daedaleopsis confragosa',
+        50: 'Daedaleopsis tricolor',
+        51: 'Entoloma abortivum',
+        52: 'Evernia mesomorpha',
+        53: 'Evernia prunastri',
+        54: 'Flammulina velutipes',
+        55: 'Fomes fomentarius',
+        56: 'Fomitopsis betulina',
+        57: 'Fomitopsis mounceae',
+        58: 'Fomitopsis pinicola',
+        59: 'Galerina marginata',
+        60: 'Ganoderma applanatum',
+        61: 'Ganoderma curtisii',
+        62: 'Ganoderma oregonense',
+        63: 'Ganoderma tsugae',
+        64: 'Gliophorus psittacinus',
+        65: 'Gloeophyllum sepiarium',
+        66: 'Graphis scripta',
+        67: 'Grifola frondosa',
+        68: 'Gymnopilus luteofolius',
+        69: 'Gyromitra esculenta',
+        70: 'Gyromitra gigas',
+        71: 'Gyromitra infula',
+        72: 'Hericium coralloides',
+        73: 'Hericium erinaceus',
+        74: 'Hygrophoropsis aurantiaca',
+        75: 'Hypholoma fasciculare',
+        76: 'Hypholoma lateritium',
+        77: 'Hypogymnia physodes',
+        78: 'Hypomyces lactifluorum',
+        79: 'Imleria badia',
+        80: 'Inonotus obliquus',
+        81: 'Ischnoderma resinosum',
+        82: 'Kuehneromyces mutabilis',
+        83: 'Laccaria ochropurpurea',
+        84: 'Lactarius deliciosus',
+        85: 'Lactarius torminosus',
+        86: 'Lactarius turpis',
+        87: 'Laetiporus sulphureus',
+        88: 'Leccinum albostipitatum',
+        89: 'Leccinum aurantiacum',
+        90: 'Leccinum scabrum',
+        91: 'Leccinum versipelle',
+        92: 'Lepista nuda',
+        93: 'Leratiomyces ceres',
+        94: 'Leucoagaricus americanus',
+        95: 'Leucoagaricus leucothites',
+        96: 'Lobaria pulmonaria',
+        97: 'Lycogala epidendrum',
+        98: 'Lycoperdon perlatum',
+        99: 'Lycoperdon pyriforme',
+        100: 'Macrolepiota procera',
+        101: 'Merulius tremellosus',
+        102: 'Mutinus ravenelii',
+        103: 'Mycena haematopus',
+        104: 'Mycena leaiana',
+        105: 'Nectria cinnabarina',
+        106: 'Omphalotus illudens',
+        107: 'Omphalotus olivascens',
+        108: 'Panaeolus papilionaceus',
+        109: 'Panellus stipticus',
+        110: 'Parmelia sulcata',
+        111: 'Paxillus involutus',
+        112: 'Peltigera aphthosa',
+        113: 'Peltigera praetextata',
+        114: 'Phaeolus schweinitzii',
+        115: 'Phaeophyscia orbicularis',
+        116: 'Phallus impudicus',
+        117: 'Phellinus igniarius',
+        118: 'Phellinus tremulae',
+        119: 'Phlebia radiata',
+        120: 'Phlebia tremellosa',
+        121: 'Pholiota aurivella',
+        122: 'Pholiota squarrosa',
+        123: 'Phyllotopsis nidulans',
+        124: 'Physcia adscendens',
+        125: 'Platismatia glauca',
+        126: 'Pleurotus ostreatus',
+        127: 'Pleurotus pulmonarius',
+        128: 'Psathyrella candolleana',
+        129: 'Pseudevernia furfuracea',
+        130: 'Pseudohydnum gelatinosum',
+        131: 'Psilocybe azurescens',
+        132: 'Psilocybe caerulescens',
+        133: 'Psilocybe cubensis',
+        134: 'Psilocybe cyanescens',
+        135: 'Psilocybe ovoideocystidiata',
+        136: 'Psilocybe pelliculosa',
+        137: 'Retiboletus ornatipes',
+        138: 'Rhytisma acerinum',
+        139: 'Sarcomyxa serotina',
+        140: 'Sarcoscypha austriaca',
+        141: 'Sarcosoma globosum',
+        142: 'Schizophyllum commune',
+        143: 'Stereum hirsutum',
+        144: 'Stereum ostrea',
+        145: 'Stropharia aeruginosa',
+        146: 'Stropharia ambigua',
+        147: 'Suillus americanus',
+        148: 'Suillus granulatus',
+        149: 'Suillus grevillei',
+        150: 'Suillus luteus',
+        151: 'Suillus spraguei',
+        152: 'Tapinella atrotomentosa',
+        153: 'Trametes betulina',
+        154: 'Trametes gibbosa',
+        155: 'Trametes hirsuta',
+        156: 'Trametes ochracea',
+        157: 'Trametes versicolor',
+        158: 'Tremella mesenterica',
+        159: 'Trichaptum biforme',
+        160: 'Tricholoma murrillianum',
+        161: 'Tricholomopsis rutilans',
+        162: 'Tylopilus felleus',
+        163: 'Tylopilus rubrobrunneus',
+        164: 'Urnula craterium',
+        165: 'Verpa bohemica',
+        166: 'Volvopluteus gloiocephalus',
+        167: 'Vulpicida pinastri',
+        168: 'Xanthoria parietina'}
+    y=infer(preprocessed_img)
+    prediction=(list(y.values())[0].numpy()[0])
+    index=np.argmax(prediction)
+    proba=round(max(prediction)*100,2)
     mushroom=index_to_class.get(index)
     return mushroom,f"{proba}%"
