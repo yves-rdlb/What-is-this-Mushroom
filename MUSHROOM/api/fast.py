@@ -7,7 +7,7 @@ from pathlib import Path
 import json
 from tensorflow import keras
 import numpy as np
-#import os
+import os
 
 from tensorflow.keras.applications.efficientnet_v2 import preprocess_input
 
@@ -23,12 +23,15 @@ app.add_middleware(
 )
 
 # Get current file's directory and go up 2 levels
-CURRENT_DIR = Path('/home/max/code/yves-rdlb/What-is-this-Mushroom/MUSHROOM/api/fast.py').parent  # MUSHROOM/api/
-base_dir = CURRENT_DIR.parent.parent  # Project root
+CURRENT_DIR = os.path.dirname(__file__)  # MUSHROOM/api/
+base_dir = os.path.dirname(os.path.dirname(CURRENT_DIR))  # Project root
 
-model_path = base_dir / "model" / "mushroom_model_EfficientNetV2B0_finetuned.keras"
-label_path = base_dir / "model" / "class_indices.json"
+model_path = os.path.join(base_dir, "model_main", "mushroom_model_EfficientNetV2B0_finetuned.keras")
+label_path = os.path.join(base_dir, "model_main", "class_indices.json")
 
+# print(CURRENT_DIR)
+# print(base_dir)
+# print(model_path)
 # Load model
 app.state.model = keras.models.load_model(model_path)
 
