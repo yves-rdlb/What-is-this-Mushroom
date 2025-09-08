@@ -48,3 +48,11 @@ secrets.toml
 raw_data/
 
 *.keras
+
+!lookups/species_edibility.csv
+!lookups/species_classes.json
+!distributions/species_points.csv
+!lookups/species_profile_seed.csv
+
+
+.venv

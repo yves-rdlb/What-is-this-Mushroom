@@ -95,10 +95,15 @@ def norm_species(s: str) -> str:
 
 # put this near the top of HELPERS, above load_model_tf
 try:
-    # if your training code defines vit_layer here, use the real one
-    from loading.load_data import vit_layer as _vit_layer
+    # If your training code exposes a callable used in a Lambda layer
+    # prefer the real import path in this repo first, then fall back.
+    from MUSHROOM.data_loading.load_data import vit_layer as _vit_layer  # type: ignore[attr-defined]
 except Exception:
-    _vit_layer = None    # we'll fall back to a safe stub
+    try:
+        # Older/alternate path that might exist in some forks
+        from loading.load_data import vit_layer as _vit_layer  # type: ignore
+    except Exception:
+        _vit_layer = None  # no-op; we will try unsafe deserialization if needed
 
 
 @st.cache_resource
@@ -119,9 +124,11 @@ def load_model_tf(model_path: Path):
 
     # ---- register any custom callables used in Lambda layers ----
     # If you have more (e.g., gelu_fn, patchify, etc.), add them here.
-    custom_objects = {
-        "vit_layer": _vit_layer,   # real import if available, else stub above
-    }
+    # Only pass known custom objects that actually resolve to callables.
+    # Passing {"name": None} can confuse Keras' deserializer.
+    custom_objects = {}
+    if _vit_layer is not None:
+        custom_objects["vit_layer"] = _vit_layer
 
     # 1) Try normal (safe) load first
     try:
@@ -352,8 +359,14 @@ edibility_df = load_edibility_map(edibility_csv) if edibility_csv.exists() else 
 left, right = st.columns([1, 1])
 
 with left:
-    st.markdown("#### 1) Upload")
-    uploaded = st.file_uploader("Drag & drop a PNG/JPEG or browse files", type=["png", "jpg", "jpeg"])
+    st.markdown("#### 1) Image source")
+    source = st.radio("Choose input", ["Upload", "Camera"], horizontal=True)
+
+    uploaded = None
+    if source == "Upload":
+        uploaded = st.file_uploader("Drag & drop a PNG/JPEG or browse files", type=["png", "jpg", "jpeg"])
+    else:
+        uploaded = st.camera_input("Take a photo")
 
     if uploaded:
         st.markdown('<div class="card">', unsafe_allow_html=True)

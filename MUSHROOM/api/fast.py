@@ -7,6 +7,10 @@ from pathlib import Path
 import json
 from tensorflow import keras
 import numpy as np
+<<<<<<< HEAD
+=======
+import os
+>>>>>>> 8ccca9c0f2f0b84000eee25804730302e29eb6c9
 
 from tensorflow.keras.applications.efficientnet_v2 import preprocess_input
 
@@ -21,14 +25,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+<<<<<<< HEAD
 # Resolve project root relative to this file (MUSHROOM/api/.. -> repo root)
 CURRENT_DIR = Path(__file__).resolve().parent
 base_dir = CURRENT_DIR.parent.parent
+=======
+# Get current file's directory and go up 2 levels
+CURRENT_DIR = os.path.dirname(__file__)  # MUSHROOM/api/
+base_dir = os.path.dirname(os.path.dirname(CURRENT_DIR))  # Project root
+>>>>>>> 8ccca9c0f2f0b84000eee25804730302e29eb6c9
 
-model_path = base_dir / "model" / "mushroom_model_EfficientNetV2B0_finetuned.keras"
-label_path = base_dir / "model" / "class_indices.json"
+model_path = os.path.join(base_dir, "model_main", "mushroom_model_EfficientNetV2B0_finetuned.keras")
+label_path = os.path.join(base_dir, "model_main", "class_indices.json")
 
+<<<<<<< HEAD
 # Load model once at startup
+=======
+# print(CURRENT_DIR)
+# print(base_dir)
+# print(model_path)
+# Load model
+>>>>>>> 8ccca9c0f2f0b84000eee25804730302e29eb6c9
 app.state.model = keras.models.load_model(model_path)
 
 # Load label mapping once at startup (name -> index), then invert to index -> name

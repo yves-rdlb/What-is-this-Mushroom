@@ -32,10 +32,24 @@ streamlit:
 
 run_api:
 	uvicorn MUSHROOM.api.fast:app --reload --port 8000
+<<<<<<< HEAD
 
 api_health:
 	@echo "GET /" && curl -s http://127.0.0.1:8000/ || true
 	@echo "\nPOST /predict (python)" && python scripts/health_check_api.py --url http://127.0.0.1:8000/predict || true
+=======
+run_vit_api :
+	uvicorn MUSHROOM.api.VIT_API:app --reload --port 8000
+
+#======================#
+#          GCP         #
+#======================#
+
+gcloud-set-project:
+	gcloud config set project $(GCP_PROJECT)
+
+
+>>>>>>> 8ccca9c0f2f0b84000eee25804730302e29eb6c9
 
 #======================#
 #         Docker       #
