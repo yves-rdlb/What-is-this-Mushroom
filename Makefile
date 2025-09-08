@@ -25,7 +25,8 @@ test_structure:
 
 run_api:
 	uvicorn MUSHROOM.api.fast:app --reload --port 8000
-
+run_vit_api :
+	uvicorn MUSHROOM.api.VIT_API:app --reload --port 8000
 
 #======================#
 #          GCP         #
