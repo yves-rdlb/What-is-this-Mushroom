@@ -7,7 +7,6 @@ from pathlib import Path
 import json
 from tensorflow import keras
 import numpy as np
-#import os
 
 from tensorflow.keras.applications.efficientnet_v2 import preprocess_input
 
@@ -16,64 +15,56 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Get current file's directory and go up 2 levels
-CURRENT_DIR = Path('/home/max/code/yves-rdlb/What-is-this-Mushroom/MUSHROOM/api/fast.py').parent  # MUSHROOM/api/
-base_dir = CURRENT_DIR.parent.parent  # Project root
+# Resolve project root relative to this file (MUSHROOM/api/.. -> repo root)
+CURRENT_DIR = Path(__file__).resolve().parent
+base_dir = CURRENT_DIR.parent.parent
 
 model_path = base_dir / "model" / "mushroom_model_EfficientNetV2B0_finetuned.keras"
 label_path = base_dir / "model" / "class_indices.json"
 
-# Load model
+# Load model once at startup
 app.state.model = keras.models.load_model(model_path)
 
-# load labels + # Load label mapping
+# Load label mapping once at startup (name -> index), then invert to index -> name
 with open(label_path, "r", encoding="utf-8") as f:
-    map = json.load(f)
-    app.state.class_labels = {int(v): k for k, v in map.items()}
+    mapping = json.load(f)
+    app.state.class_labels = {int(v): k for k, v in mapping.items()}
 
-# Endpoint for https://your-domain.com/
+
 @app.get("/")
 def root():
-    return {
-        'message': "Hi, The API is running!"
-    }
+    return {"message": "API is running"}
 
+
+# Accept both /predict and /predict/ for convenience
+@app.post("/predict")
 @app.post("/predict/")
 async def predict(file: UploadFile = File(...)):
     try:
         # Read file as bytes
         contents = await file.read()
 
-        # Convert to PIL Image
-        image = Image.open(io.BytesIO(contents)).convert('RGB') # to match preprocessing
-        image = image.resize((224,224))
-        #img=np.array(image).astype('float32') /255.0
-        image=np.expand_dims(image, axis=0)
-
+        # Convert to PIL Image and preprocess
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+        image = image.resize((224, 224))
+        image = np.expand_dims(image, axis=0)
         image = preprocess_input(image)
 
-
-        # Run your model prediction
+        # Run model prediction
         model = app.state.model
         index_to_class = app.state.class_labels
+        prediction = model.predict(image)
+        index = int(np.argmax(prediction[0]))
+        prob = float(np.max(prediction[0]))  # 0..1
+        species = index_to_class.get(index, f"class_{index}")
 
-        prediction=model.predict(image)
-        index=int(np.argmax(prediction[0]))
-        proba = round(np.max(prediction[0]) * 100, 2)
-        mushroom=index_to_class.get(index, f"class_{index}")
-
-        return JSONResponse(
-            content={
-                "filename": file.filename,
-                "prediction": {
-                               'class': mushroom,
-                               'index': index,
-                               'confidence': proba}})
+        # Match UI/app_v3.py expected contract: {"species": str, "confidence": float 0..1}
+        return JSONResponse(content={"species": species, "confidence": prob})
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=400)

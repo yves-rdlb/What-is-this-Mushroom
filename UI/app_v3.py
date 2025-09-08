@@ -11,8 +11,7 @@ from PIL import Image
 import streamlit as st
 
 # ---------- PATHS ----------
-# Anchor paths at the repo root (one level up from /UI)
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parent
 MODELS_DIR = PROJECT_ROOT / "model"
 LOOKUPS_DIR = PROJECT_ROOT / "lookups"
 DEFAULT_INPUT_SIZE = (224, 224)
