@@ -318,9 +318,16 @@ with st.sidebar:
         model_name = st.selectbox("Local model", list(models.keys()))
         model_meta = models[model_name]
 
-    with st.expander("API (optional)"):
-        use_api = st.toggle("Use team API", value=False)
-        api_url = st.text_input("API URL", "http://127.0.0.1:8000/predict", disabled=not use_api)
+    with st.expander("API (optional)", expanded=False):
+        use_api_a = st.toggle("Use API A", value=False)
+        api_a_url = st.text_input("API A URL", "http://127.0.0.1:8000/predict", disabled=not use_api_a)
+
+        use_api_b = st.toggle("Use API B", value=False)
+        api_b_url = st.text_input("API B URL", "http://127.0.0.1:8001/predict", disabled=not use_api_b)
+
+        st.caption("If both are ON, the app will call both and compare the results.")
+        compare_mode = st.checkbox("Show comparison table", value=True, disabled=not (use_api_a and use_api_b))
+        consensus_gate = st.checkbox("Enable consensus gate (require same species & above threshold)", value=False, disabled=not (use_api_a and use_api_b))
 
     with st.expander("Safety & Display", expanded=True):
         conf_threshold = st.slider("Safety threshold (abstain below)", 0.50, 0.99, 0.85, 0.01)
@@ -379,18 +386,68 @@ if uploaded and run:
             if st.session_state.get("img_pil") is None:
                 st.session_state["img_pil"] = img
 
-            if 'use_api' not in locals():
-                use_api = False  # safety
+            def _one_api_prediction(url: str) -> Dict:
+                r = call_api(url, st.session_state["img_bytes"])
+                sp = str(r.get("species", "unknown"))
+                cf = float(r.get("confidence", 0.0))
+                return {"species": sp, "confidence": cf}
 
-            if use_api:
-                result = call_api(api_url, st.session_state["img_bytes"])
-                top_species = result.get("species", "unknown")
-                top_prob = float(result.get("confidence", 0.0))
-                probs_series = pd.Series({top_species: top_prob}).sort_values(ascending=False)
+            api_a_res = api_b_res = None
+
+            if use_api_a or use_api_b:
+                if use_api_a:
+                    api_a_res = _one_api_prediction(api_a_url)
+                if use_api_b:
+                    api_b_res = _one_api_prediction(api_b_url)
+
+                if use_api_a and use_api_b:
+                    # both present → compare and optionally enforce consensus
+                    a_sp, a_cf = api_a_res["species"], api_a_res["confidence"]
+                    b_sp, b_cf = api_b_res["species"], api_b_res["confidence"]
+
+                    # default pick = higher confidence
+                    if a_cf >= b_cf:
+                        pick_sp, pick_cf, pick_src = a_sp, a_cf, "API A"
+                    else:
+                        pick_sp, pick_cf, pick_src = b_sp, b_cf, "API B"
+
+                    if consensus_gate:
+                        same_species = (norm_species(a_sp) == norm_species(b_sp))
+                        both_above = (a_cf >= conf_threshold and b_cf >= conf_threshold)
+                        if same_species and both_above:
+                            pick_sp = a_sp  # same species
+                            pick_cf = (a_cf + b_cf) / 2.0
+                            pick_src = "Consensus (A+B)"
+                        else:
+                            pick_sp, pick_cf, pick_src = "abstain", 0.0, "Consensus failed"
+
+                    top_species, top_prob = pick_sp, float(pick_cf)
+                    # For Confidence tab: store both
+                    probs_series = pd.Series({
+                        f"API A: {a_sp}": a_cf if api_a_res else 0.0,
+                        f"API B: {b_sp}": b_cf if api_b_res else 0.0,
+                    }).sort_values(ascending=False)
+
+                    st.session_state["_api_compare"] = {
+                        "A": api_a_res,
+                        "B": api_b_res,
+                        "pick_src": pick_src,
+                        "consensus_gate": bool(consensus_gate),
+                        "compare_mode": bool(compare_mode),
+                    }
+                else:
+                    # only one API enabled
+                    single = api_a_res if use_api_a else api_b_res
+                    top_species = single["species"]
+                    top_prob = float(single["confidence"])
+                    probs_series = pd.Series({top_species: top_prob}).sort_values(ascending=False)
+                    st.session_state["_api_compare"] = None
             else:
+                # local inference
                 probs_series = local_predict(model_meta, st.session_state["img_pil"])
                 top_species = probs_series.index[0]
                 top_prob = float(probs_series.iloc[0])
+                st.session_state["_api_compare"] = None
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
@@ -413,6 +470,11 @@ if uploaded and run:
                 else:
                     edibility = "Not Edible" if int(row.iloc[0]["edible"]) == 1 else "Edible"
                     pill_cls = "warn" if edibility == "Not Edible" else "ok"
+
+                api_cmp = st.session_state.get("_api_compare")
+                if api_cmp:
+                    status = "Consensus required" if api_cmp["consensus_gate"] else "Comparison only"
+                    st.caption(f"API mode: {status} • Picked: {api_cmp['pick_src']}")
 
                 # Summary strip
                 c1, c2, c3 = st.columns([1.2, 1, 1])
@@ -440,6 +502,15 @@ if uploaded and run:
                 }),
                 use_container_width=True,
             )
+            api_cmp = st.session_state.get("_api_compare")
+            if api_cmp and compare_mode:
+                a = api_cmp["A"]; b = api_cmp["B"]
+                cmp_df = pd.DataFrame([
+                    {"source": "API A", "species": a["species"], "confidence": a["confidence"]} if a else {"source": "API A", "species": "—", "confidence": 0.0},
+                    {"source": "API B", "species": b["species"], "confidence": b["confidence"]} if b else {"source": "API B", "species": "—", "confidence": 0.0},
+                ])
+                st.markdown("**API comparison**")
+                st.dataframe(cmp_df, use_container_width=True)
 
         with tab_about:
             st.markdown(
