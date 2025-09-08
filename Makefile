@@ -1,9 +1,12 @@
+## Clean, consolidated Makefile
+
 #======================#
 # Install, clean, test #
 #======================#
 
 install_requirements:
-	@pip install -r requirements.txt
+	@python -m pip install --upgrade pip
+	@python -m pip install -r requirements.txt
 
 install:
 	@pip install . -U
@@ -16,8 +19,12 @@ clean:
 	@rm -fr proj-*.dist-info
 	@rm -fr proj.egg-info
 
-test_structure:
-	@bash tests/test_structure.sh
+#======================#
+#          UI          #
+#======================#
+
+streamlit:
+	python -m streamlit run UI/app_v3.py
 
 #======================#
 #          API         #
@@ -25,6 +32,12 @@ test_structure:
 
 run_api:
 	uvicorn MUSHROOM.api.fast:app --reload --port 8000
+<<<<<<< HEAD
+
+api_health:
+	@echo "GET /" && curl -s http://127.0.0.1:8000/ || true
+	@echo "\nPOST /predict (python)" && python scripts/health_check_api.py --url http://127.0.0.1:8000/predict || true
+=======
 run_vit_api :
 	uvicorn MUSHROOM.api.VIT_API:app --reload --port 8000
 
@@ -36,6 +49,7 @@ gcloud-set-project:
 	gcloud config set project $(GCP_PROJECT)
 
 
+>>>>>>> 8ccca9c0f2f0b84000eee25804730302e29eb6c9
 
 #======================#
 #         Docker       #
@@ -73,8 +87,6 @@ docker_build:
 		--platform linux/amd64 \
 		-t $(DOCKER_IMAGE_PATH):prod .
 
-# Alternative if previous doesn´t work. Needs additional setup.
-# Probably don´t need this. Used to build arm on linux amd64
 docker_build_alternative:
 	docker buildx build --load \
 		--platform linux/amd64 \
@@ -94,8 +106,6 @@ docker_run_interactively:
 		--env-file .env \
 		$(DOCKER_IMAGE_PATH):prod \
 		bash
-
-# Push and deploy to cloud
 
 docker_allow:
 	gcloud auth configure-docker $(GCP_REGION)-docker.pkg.dev
