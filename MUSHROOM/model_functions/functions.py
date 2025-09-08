@@ -1,14 +1,17 @@
 #Here are the functions for preprocessing the binary model for edibility
 ###############IMPORTS#######################
-from keras.preprocessing.image import ImageDataGenerator
-from sklearn.utils import resample
 import tensorflow as tf
-from keras import layers, models
-import pandas as pd
+from tensorflow import keras
+from tensorflow.keras import layers, models
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.callbacks import EarlyStopping
+
 import numpy as np
-from keras.callbacks import EarlyStopping
+import pandas as pd
+from sklearn.utils import resample
 from PIL import Image
 import os, zipfile, requests
+
 
 #creating a function to add edibility criteria and drop duplicates
 def add_edibility(df) :
@@ -424,7 +427,7 @@ def predict(model,img):
 
 
 ########################## FUNCTIONS ESPECIALLY FOR THE VIT MODEL ##################################
-
+import io
 
 def load_vit_model(url="https://github.com/yves-rdlb/What-is-this-Mushroom/releases/download/vit_saved_model_v0/vit_saved_model.zip") :
     os.makedirs("models", exist_ok=True)
@@ -446,8 +449,11 @@ def load_vit_model(url="https://github.com/yves-rdlb/What-is-this-Mushroom/relea
     infer=reloaded.signatures['serving_default']
     return infer
 
-def vit_preprocess_for_predict(img_path) :
-    img=Image.open(img_path)
+def vit_preprocess_for_predict(img_path,binary) :
+    if binary :
+        img=Image.open(io.BytesIO(img_path)).convert('RGB')
+    else :
+        img=Image.open((img_path)).convert('RGB')
     img=img.resize((224,224))
     arr=np.array(img).astype('float32')
     arr=arr/255.0
@@ -456,7 +462,7 @@ def vit_preprocess_for_predict(img_path) :
     arr=tf.constant(arr,dtype=tf.float32)
     return arr
 
-def vit_predict(infer,preprocessed_img,index_to_class) :
+def vit_predict(infer,preprocessed_img) :
     species_to_label = {
     "Agaricus augustus": 0,
     "Agaricus xanthodermus": 1,
