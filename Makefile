@@ -24,7 +24,7 @@ clean:
 #======================#
 
 streamlit:
-	streamlit run UI/app_v3.py
+	python -m streamlit run UI/app_v3.py
 
 #======================#
 #          API         #

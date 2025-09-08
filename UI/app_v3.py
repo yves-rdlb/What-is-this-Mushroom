@@ -9,11 +9,16 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 import streamlit as st
+import pydeck as pdk
 
 # ---------- PATHS ----------
-PROJECT_ROOT = Path(__file__).resolve().parent
+# Resolve project root as the repo root (one level up from UI/)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODELS_DIR = PROJECT_ROOT / "model"
 LOOKUPS_DIR = PROJECT_ROOT / "lookups"
+DISTRIBUTIONS_DIR = PROJECT_ROOT / "distributions"
+POINTS_CSV = DISTRIBUTIONS_DIR / "species_points.csv"
+ICON_URL = "https://raw.githubusercontent.com/visgl/deck.gl-data/master/icon/marker.png"
 DEFAULT_INPUT_SIZE = (224, 224)
 
 # ---------- PAGE ----------
@@ -171,6 +176,93 @@ def to_probs(preds: np.ndarray) -> np.ndarray:
         arr = e / e.sum()
     return arr
 
+@st.cache_data
+def load_points(mtime: float | None = None) -> pd.DataFrame:
+    """Load species point data for heatmap. Returns empty df if file missing."""
+    if not POINTS_CSV.exists():
+        return pd.DataFrame(columns=["species", "lat", "lon", "month"])  # graceful empty
+    df = pd.read_csv(POINTS_CSV)
+    df = df.dropna(subset=["lat", "lon"])  # ensure coordinates present
+    # normalize species key to match norm_species()
+    df["species"] = (
+        df["species"].astype(str).str.strip().str.lower().str.replace(" ", "_")
+    )
+    # coerce month to int if present
+    if "month" in df.columns:
+        df["month"] = pd.to_numeric(df["month"], errors="coerce").fillna(0).astype(int)
+    return df
+
+def build_heatmap_deck(points_df: pd.DataFrame, species_key: str, month: int | None = None, add_icon: bool = True) -> pdk.Deck:
+    """Return a pydeck Deck object for the given normalized species name."""
+    sdf = points_df[points_df["species"] == species_key]
+    if month is not None and "month" in sdf.columns:
+        sdf = sdf[(sdf["month"] == 0) | (sdf["month"] == month)]
+
+    if sdf.empty:
+        # UK-ish fallback center
+        center_lat, center_lon = 54.0, -2.5
+    else:
+        center_lat = float(sdf["lat"].mean())
+        center_lon = float(sdf["lon"].mean())
+
+    heat_layer = pdk.Layer(
+        "HeatmapLayer",
+        data=sdf,
+        get_position='[lon, lat]',
+        aggregation="MEAN",
+        radiusPixels=60,
+        intensity=2.0,
+    )
+
+    # Red dots so sparse datasets are always visible
+    dot_layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=sdf.assign(name=species_key),
+        get_position='[lon, lat]',
+        get_radius=200,
+        radius_min_pixels=4,
+        radius_max_pixels=12,
+        get_fill_color=[255, 0, 0, 180],
+        pickable=True,
+    )
+
+    layers = [heat_layer, dot_layer]
+
+    # Optional centroid icon (mean of points) to indicate typical region
+    if add_icon and not sdf.empty:
+        icon_df = pd.DataFrame([
+            {
+                "lat": center_lat,
+                "lon": center_lon,
+                "name": species_key,
+                "icon_data": {
+                    "url": ICON_URL,
+                    "width": 128,
+                    "height": 128,
+                    "anchorY": 128,
+                },
+            }
+        ])
+        icon_layer = pdk.Layer(
+            "IconLayer",
+            data=icon_df,
+            get_icon="icon_data",
+            get_position='[lon, lat]',
+            get_size=4,
+            size_scale=10,
+            pickable=True,
+        )
+        layers.append(icon_layer)
+
+    view = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=5, bearing=0, pitch=0)
+    return pdk.Deck(
+        map_provider='carto',
+        map_style='light',
+        initial_view_state=view,
+        layers=layers,
+        tooltip={"text": "{name}"},
+    )
+
 def list_available_models() -> Dict[str, Dict]:
     return {
         "ViT": {
@@ -235,6 +327,14 @@ with st.sidebar:
         st.caption("Lower = more confident predictions shown; higher = stricter abstention.")
         top_k = st.slider("Show top-K", 3, 10, 5, 1)
 
+    with st.expander("Map (optional)"):
+        enable_map = st.toggle("Show heatmap", value=True)
+        filter_by_month = st.checkbox("Filter by month", value=False)
+        selected_month = st.slider(
+            "Month", 1, 12, value=pd.Timestamp.now().month, disabled=not filter_by_month
+        )
+        show_region_pin = st.toggle("Show region pin", value=True)
+
 # ---------- DATA ----------
 edibility_csv = LOOKUPS_DIR / "species_edibility.csv"
 if not edibility_csv.exists():
@@ -297,7 +397,7 @@ if uploaded and run:
             probs_series = pd.Series(dtype=float)
 
     if not probs_series.empty:
-        tab_res, tab_conf, tab_about = st.tabs(["Result", "Confidence", "About"])
+        tab_res, tab_conf, tab_about, tab_map = st.tabs(["Result", "Confidence", "About", "Map"])
 
         with tab_res:
             if top_prob < conf_threshold:
@@ -349,6 +449,35 @@ if uploaded and run:
                 **Pipeline:** *Species → Edibility (deterministic)* with a **safety threshold** (abstain)
                 """
             )
+        with tab_map:
+            # guardrails: only show when above threshold and user enabled
+            if top_prob < conf_threshold:
+                st.info("Abstained below safety threshold — map hidden.")
+            elif 'enable_map' in locals() and not enable_map:
+                st.caption("Heatmap disabled in sidebar.")
+            else:
+                # include file mtime so cache invalidates when CSV changes
+                mtime = POINTS_CSV.stat().st_mtime if POINTS_CSV.exists() else None
+                pts_df = load_points(mtime)
+                # If no data file or no matching rows, inform the user explicitly
+                if pts_df.empty:
+                    st.warning("No distribution data loaded. Add rows to distributions/species_points.csv to see the heatmap.")
+                species_key = norm_species(top_species)
+                sdf = pts_df[pts_df["species"] == species_key]
+                with st.expander("Debug (map data)"):
+                    st.write(f"CSV path: {POINTS_CSV}")
+                    st.write({
+                        "total_rows": int(pts_df.shape[0]),
+                        "species_rows": int(sdf.shape[0]),
+                        "unique_species_keys": int(pts_df["species"].nunique()) if not pts_df.empty else 0,
+                    })
+                    st.dataframe(sdf.head(20), use_container_width=True)
+                if not pts_df.empty and sdf.empty:
+                    st.info(f"No points found for species '{species_key}'. Add rows in species_points.csv (species, lat, lon, month).")
+                month_arg = selected_month if ('filter_by_month' in locals() and filter_by_month) else None
+                deck = build_heatmap_deck(pts_df, species_key, month=month_arg, add_icon=('show_region_pin' in locals() and show_region_pin))
+                st.pydeck_chart(deck)
+                st.caption("Distribution is illustrative. Do not forage based solely on this app.")
 else:
     st.info("Upload an image to begin.")
 
