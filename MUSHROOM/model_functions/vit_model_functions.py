@@ -9,24 +9,42 @@ import os, zipfile, requests
 ########################## FUNCTIONS ESPECIALLY FOR THE VIT MODEL ##################################
 import io
 
-def load_vit_model(url="https://github.com/yves-rdlb/What-is-this-Mushroom/releases/download/vit_saved_model_v0/vit_saved_model.zip") :
-    os.makedirs("models", exist_ok=True)
-    zip_path = "models/vit_saved_model.zip"
+def load_vit_model(url="https://github.com/yves-rdlb/What-is-this-Mushroom/releases/download/vit_saved_model_v0/vit_saved_model.zip"):
+    """Download the ViT SavedModel if missing, then load and return its default signature.
 
-    # download
-    r = requests.get(url, stream=True)
-    with open(zip_path, "wb") as f:
-        for chunk in r.iter_content(8192):
-            f.write(chunk)
+    - Skips download/extract when models/vit_saved_model already exists.
+    - Adds a network timeout to avoid hanging indefinitely.
+    """
+    models_dir = "models"
+    model_directory_path = os.path.join(models_dir, "vit_saved_model")
+    zip_path = os.path.join(models_dir, "vit_saved_model.zip")
 
-    # extract
-    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        zip_ref.extractall("models")
+    os.makedirs(models_dir, exist_ok=True)
 
+    # Only download/extract if the SavedModel directory is missing or empty
+    need_download = not os.path.isdir(model_directory_path) or not os.listdir(model_directory_path)
+    if need_download:
+        # Download
+        with requests.get(url, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            with open(zip_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
 
-    model_directory_path="models/vit_saved_model"
-    reloaded=tf.saved_model.load(model_directory_path)
-    infer=reloaded.signatures['serving_default']
+        # Extract
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(models_dir)
+
+        # Best-effort cleanup
+        try:
+            os.remove(zip_path)
+        except OSError:
+            pass
+
+    # Load the SavedModel signature
+    reloaded = tf.saved_model.load(model_directory_path)
+    infer = reloaded.signatures['serving_default']
     return infer
 
 def vit_preprocess_for_predict(img_path,binary) :
