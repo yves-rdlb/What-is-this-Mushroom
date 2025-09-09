@@ -1,17 +1,7 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from PIL import Image
-import io
-from pathlib import Path
-import json
-from tensorflow import keras
-import numpy as np
-import os
 from MUSHROOM.model_functions.vit_model_functions import load_vit_model,vit_preprocess_for_predict,vit_predict
-import tensorflow as tf
-
-
 
 app = FastAPI()
 
@@ -23,16 +13,8 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-# Get current file's directory and go up 2 levels
-CURRENT_DIR = os.path.dirname(__file__)  # MUSHROOM/api/
-base_dir = os.path.dirname(os.path.dirname(CURRENT_DIR))  # Project root
-
-model_path = "https://github.com/yves-rdlb/What-is-this-Mushroom/releases/download/vit_saved_model_v0/vit_saved_model.zip"
-
-# print(CURRENT_DIR)
-# print(base_dir)
-# print(model_path)
 # Load model
+model_path = "https://github.com/yves-rdlb/What-is-this-Mushroom/releases/download/vit_saved_model_v0/vit_saved_model.zip"
 app.state.model = load_vit_model(url=model_path)
 
 # Endpoint for https://your-domain.com/
