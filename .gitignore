@@ -56,3 +56,5 @@ raw_data/
 
 
 .venv
+.venv-api/
+.venv-ui/

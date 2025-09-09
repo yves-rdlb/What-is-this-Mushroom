@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-import numpy as np
 import pandas as pd
 from PIL import Image
 import streamlit as st
@@ -14,7 +13,6 @@ import pydeck as pdk
 # ---------- PATHS ----------
 # Resolve project root as the repo root (one level up from UI/)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODELS_DIR = PROJECT_ROOT / "model"
 LOOKUPS_DIR = PROJECT_ROOT / "lookups"
 DISTRIBUTIONS_DIR = PROJECT_ROOT / "distributions"
 POINTS_CSV = DISTRIBUTIONS_DIR / "species_points.csv"
@@ -74,7 +72,7 @@ st.markdown(
 
 # Header
 st.markdown("### 🍄 What Is This Mushroom?")
-st.caption("Lesson-style API-first UI. Falls back to local inference if API is not set.")
+st.caption("API-only UI using a single ViT endpoint (no local models).")
 
 # ---------- HELPERS ----------
 @st.cache_data
@@ -93,95 +91,7 @@ def load_edibility_map(csv_path: Path) -> pd.DataFrame:
 def norm_species(s: str) -> str:
     return s.strip().lower().replace(" ", "_")
 
-# put this near the top of HELPERS, above load_model_tf
-try:
-    # If your training code exposes a callable used in a Lambda layer
-    # prefer the real import path in this repo first, then fall back.
-    from MUSHROOM.data_loading.load_data import vit_layer as _vit_layer  # type: ignore[attr-defined]
-except Exception:
-    try:
-        # Older/alternate path that might exist in some forks
-        from loading.load_data import vit_layer as _vit_layer  # type: ignore
-    except Exception:
-        _vit_layer = None  # no-op; we will try unsafe deserialization if needed
-
-
-@st.cache_resource
-def load_model_tf(model_path: Path):
-    """
-    Loads a Keras model. Tries safe deserialization first; if the model
-    contains Lambda layers or other Python callables, retries with
-    custom_objects and safe_mode=False.
-
-    Only enable unsafe mode for trusted model files.
-    """
-    import os
-    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
-    import tensorflow as tf
-
-    if not model_path.exists():
-        raise FileNotFoundError(f"Model file not found: {model_path}")
-
-    # ---- register any custom callables used in Lambda layers ----
-    # If you have more (e.g., gelu_fn, patchify, etc.), add them here.
-    # Only pass known custom objects that actually resolve to callables.
-    # Passing {"name": None} can confuse Keras' deserializer.
-    custom_objects = {}
-    if _vit_layer is not None:
-        custom_objects["vit_layer"] = _vit_layer
-
-    # 1) Try normal (safe) load first
-    try:
-        return tf.keras.models.load_model(
-            model_path,
-            compile=False,
-            custom_objects=custom_objects,  # make vit_layer visible
-        )
-    except Exception as e:
-        msg = str(e)
-
-        # 2) If blocked by Lambda / unsafe deserialization, enable unsafe and retry
-        if "unsafe_deserialization" in msg or "Lambda layer" in msg:
-            try:
-                from keras import config as keras_config
-                keras_config.enable_unsafe_deserialization()
-            except Exception:
-                pass
-
-            return tf.keras.models.load_model(
-                model_path,
-                compile=False,
-                custom_objects=custom_objects,
-                safe_mode=False,   # allow Python callable deserialization
-            )
-
-        # Otherwise bubble up
-        raise
-
-
-
-def preprocess_image_for_tf(img: Image.Image, size: Tuple[int, int], scheme: str) -> np.ndarray:
-    # Match to your training preproc; examples for common backbones:
-    arr = np.asarray(img.convert("RGB").resize(size)).astype("float32")
-    if scheme == "efficientnet":
-        from tensorflow.keras.applications.efficientnet import preprocess_input
-        arr = preprocess_input(arr)
-    elif scheme == "xception":
-        from tensorflow.keras.applications.xception import preprocess_input
-        arr = preprocess_input(arr)
-    else:
-        arr = arr / 255.0
-    return np.expand_dims(arr, 0)
-
-def to_probs(preds: np.ndarray) -> np.ndarray:
-    arr = preds.squeeze()
-    if arr.ndim != 1:
-        raise ValueError(f"Unexpected prediction shape: {preds.shape}")
-    # If not normalized, softmax it
-    if not np.isclose(arr.sum(), 1.0, atol=1e-3):
-        e = np.exp(arr - arr.max())
-        arr = e / e.sum()
-    return arr
+# (All local model helpers removed; API-only mode)
 
 @st.cache_data
 def load_points(mtime: float | None = None) -> pd.DataFrame:
@@ -270,76 +180,61 @@ def build_heatmap_deck(points_df: pd.DataFrame, species_key: str, month: int | N
         tooltip={"text": "{name}"},
     )
 
-def list_available_models() -> Dict[str, Dict]:
-    return {
-        "ViT": {
-            "type": "tf",
-            "path": MODELS_DIR / "ViT_model.keras",
-            "input_size": (224, 224),
-            "classes": LOOKUPS_DIR / "species_classes.json",
-            "preproc": "custom",  # match your training
-        },
-        "EffNetB2_finetuned": {
-            "type": "tf",
-            "path": MODELS_DIR / "mushroom_model_EfficientNetV2B0_finetuned.keras",
-            "input_size": (224, 224),
-            "classes": LOOKUPS_DIR / "species_classes.json",
-            "preproc": "efficientnet",
-        },
-        "EffNetV2B0_iter6": {
-            "type": "tf",
-            "path": MODELS_DIR / "mushroom_model_EfficientNetV2B0_6.keras",
-            "input_size": (224, 224),
-            "classes": LOOKUPS_DIR / "species_classes.json",
-            "preproc": "efficientnet",
-        },
-    }
-
-
-def load_class_names(path: Path) -> List[str]:
-    with open(path, "r") as f:
-        return json.load(f)
-
-def local_predict(model_meta: Dict, img: Image.Image) -> pd.Series:
-    classes = load_class_names(model_meta["classes"])
-    model = load_model_tf(model_meta["path"])
-    x = preprocess_image_for_tf(img, tuple(model_meta["input_size"]), model_meta.get("preproc", "custom"))
-    preds = model.predict(x, verbose=0)
-    probs = to_probs(preds)
-    s = pd.Series(probs, index=classes).sort_values(ascending=False)
-    return s
+def _parse_confidence_to_float01(val) -> float:
+    """Accept 0..1 float, 0..100 float, or '87.2%' string and normalize to 0..1."""
+    try:
+        if isinstance(val, str):
+            v = val.strip()
+            if v.endswith("%"):
+                return max(0.0, min(1.0, float(v[:-1]) / 100.0))
+            # plain string number
+            f = float(v)
+            # assume 0..100 if > 1
+            return f / 100.0 if f > 1.0 else f
+        if isinstance(val, (int, float)):
+            return float(val) / 100.0 if float(val) > 1.0 else float(val)
+    except Exception:
+        pass
+    return 0.0
 
 def call_api(api_url: str, image_bytes: bytes) -> Dict:
+    """
+    Calls the ViT API and normalizes the response into:
+        {"species": str, "confidence": float 0..1, "edibility": Optional[str]}
+    Supports both the ViT API schema ({"prediction": {"class", "confidence", "edibility"}})
+    and a fallback simple schema ({"species", "confidence"}).
+    """
     import requests
-    # lesson style: send a multipart file and get JSON back
     files = {"file": ("upload.jpg", image_bytes, "image/jpeg")}
     r = requests.post(api_url, files=files, timeout=30)
     r.raise_for_status()
-    return r.json()  # expected: {"species": str, "confidence": float}
+    data = r.json()
+
+    species = None
+    conf = None
+    edibility = None
+
+    if isinstance(data, dict) and "prediction" in data and isinstance(data["prediction"], dict):
+        p = data["prediction"]
+        species = p.get("class") or p.get("species") or "unknown"
+        conf = _parse_confidence_to_float01(p.get("confidence", 0.0))
+        edibility = p.get("edibility")
+    else:
+        species = data.get("species", "unknown")
+        conf = _parse_confidence_to_float01(data.get("confidence", 0.0))
+        edibility = data.get("edibility")
+
+    return {"species": str(species), "confidence": float(conf), "edibility": (str(edibility) if edibility is not None else None)}
 
 # ---------- SIDEBAR ----------
 with st.sidebar:
     st.header("Settings")
-    with st.expander("Model", expanded=True):
-        models = list_available_models()
-        model_name = st.selectbox("Local model", list(models.keys()))
-        model_meta = models[model_name]
-
-    with st.expander("API (optional)", expanded=False):
-        use_api_a = st.toggle("Use API A", value=False)
-        api_a_url = st.text_input("API A URL", "http://127.0.0.1:8000/predict", disabled=not use_api_a)
-
-        use_api_b = st.toggle("Use API B", value=False)
-        api_b_url = st.text_input("API B URL", "http://127.0.0.1:8001/predict", disabled=not use_api_b)
-
-        st.caption("If both are ON, the app will call both and compare the results.")
-        compare_mode = st.checkbox("Show comparison table", value=True, disabled=not (use_api_a and use_api_b))
-        consensus_gate = st.checkbox("Enable consensus gate (require same species & above threshold)", value=False, disabled=not (use_api_a and use_api_b))
+    with st.expander("ViT API", expanded=True):
+        vit_api_url = st.text_input("Endpoint", "http://127.0.0.1:8000/predict/", help="Your ViT FastAPI predict endpoint")
 
     with st.expander("Safety & Display", expanded=True):
         conf_threshold = st.slider("Safety threshold (abstain below)", 0.50, 0.99, 0.85, 0.01)
         st.caption("Lower = more confident predictions shown; higher = stricter abstention.")
-        top_k = st.slider("Show top-K", 3, 10, 5, 1)
 
     with st.expander("Map (optional)"):
         enable_map = st.toggle("Show heatmap", value=True)
@@ -399,68 +294,12 @@ if uploaded and run:
             if st.session_state.get("img_pil") is None:
                 st.session_state["img_pil"] = img
 
-            def _one_api_prediction(url: str) -> Dict:
-                r = call_api(url, st.session_state["img_bytes"])
-                sp = str(r.get("species", "unknown"))
-                cf = float(r.get("confidence", 0.0))
-                return {"species": sp, "confidence": cf}
-
-            api_a_res = api_b_res = None
-
-            if use_api_a or use_api_b:
-                if use_api_a:
-                    api_a_res = _one_api_prediction(api_a_url)
-                if use_api_b:
-                    api_b_res = _one_api_prediction(api_b_url)
-
-                if use_api_a and use_api_b:
-                    # both present → compare and optionally enforce consensus
-                    a_sp, a_cf = api_a_res["species"], api_a_res["confidence"]
-                    b_sp, b_cf = api_b_res["species"], api_b_res["confidence"]
-
-                    # default pick = higher confidence
-                    if a_cf >= b_cf:
-                        pick_sp, pick_cf, pick_src = a_sp, a_cf, "API A"
-                    else:
-                        pick_sp, pick_cf, pick_src = b_sp, b_cf, "API B"
-
-                    if consensus_gate:
-                        same_species = (norm_species(a_sp) == norm_species(b_sp))
-                        both_above = (a_cf >= conf_threshold and b_cf >= conf_threshold)
-                        if same_species and both_above:
-                            pick_sp = a_sp  # same species
-                            pick_cf = (a_cf + b_cf) / 2.0
-                            pick_src = "Consensus (A+B)"
-                        else:
-                            pick_sp, pick_cf, pick_src = "abstain", 0.0, "Consensus failed"
-
-                    top_species, top_prob = pick_sp, float(pick_cf)
-                    # For Confidence tab: store both
-                    probs_series = pd.Series({
-                        f"API A: {a_sp}": a_cf if api_a_res else 0.0,
-                        f"API B: {b_sp}": b_cf if api_b_res else 0.0,
-                    }).sort_values(ascending=False)
-
-                    st.session_state["_api_compare"] = {
-                        "A": api_a_res,
-                        "B": api_b_res,
-                        "pick_src": pick_src,
-                        "consensus_gate": bool(consensus_gate),
-                        "compare_mode": bool(compare_mode),
-                    }
-                else:
-                    # only one API enabled
-                    single = api_a_res if use_api_a else api_b_res
-                    top_species = single["species"]
-                    top_prob = float(single["confidence"])
-                    probs_series = pd.Series({top_species: top_prob}).sort_values(ascending=False)
-                    st.session_state["_api_compare"] = None
-            else:
-                # local inference
-                probs_series = local_predict(model_meta, st.session_state["img_pil"])
-                top_species = probs_series.index[0]
-                top_prob = float(probs_series.iloc[0])
-                st.session_state["_api_compare"] = None
+            # Single ViT API call
+            api_res = call_api(vit_api_url.strip(), st.session_state["img_bytes"])
+            top_species = str(api_res.get("species", "unknown"))
+            top_prob = float(api_res.get("confidence", 0.0))
+            api_edibility = api_res.get("edibility")  # may be 'edible'/'not edible'
+            probs_series = pd.Series({top_species: top_prob}).sort_values(ascending=False)
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
@@ -475,19 +314,19 @@ if uploaded and run:
                 st.error(f"Max confidence {top_prob:.2%} is below safety threshold {conf_threshold:.0%}.")
                 st.caption("Following the safety gate rule to avoid risky advice.")
             else:
-                pred_norm = norm_species(top_species)
-                row = edibility_df[edibility_df["species"] == pred_norm]
-                if row.empty:
-                    edibility = "Unknown"
-                    pill_cls = "unknown"
+                # Prefer API-provided edibility when available; fallback to CSV
+                if 'api_edibility' in locals() and api_edibility:
+                    edibility = str(api_edibility).strip().title()
+                    pill_cls = "warn" if edibility.lower().startswith("not") else ("ok" if edibility.lower().startswith("edib") else "unknown")
                 else:
-                    edibility = "Not Edible" if int(row.iloc[0]["edible"]) == 1 else "Edible"
-                    pill_cls = "warn" if edibility == "Not Edible" else "ok"
-
-                api_cmp = st.session_state.get("_api_compare")
-                if api_cmp:
-                    status = "Consensus required" if api_cmp["consensus_gate"] else "Comparison only"
-                    st.caption(f"API mode: {status} • Picked: {api_cmp['pick_src']}")
+                    pred_norm = norm_species(top_species)
+                    row = edibility_df[edibility_df["species"] == pred_norm]
+                    if row.empty:
+                        edibility = "Unknown"
+                        pill_cls = "unknown"
+                    else:
+                        edibility = "Not Edible" if int(row.iloc[0]["edible"]) == 1 else "Edible"
+                        pill_cls = "warn" if edibility == "Not Edible" else "ok"
 
                 # Summary strip
                 c1, c2, c3 = st.columns([1.2, 1, 1])
@@ -497,7 +336,7 @@ if uploaded and run:
                 with c2:
                     st.metric("Confidence", f"{top_prob:.1%}")
                 with c3:
-                    st.metric("Top-K shown", f"{min(top_k, len(probs_series))}")
+                    st.metric("Confidence src", "ViT API")
 
                 if edibility == "Not Edible":
                     st.warning("⚠️ Do not consume wild mushrooms.")
@@ -505,8 +344,8 @@ if uploaded and run:
                     st.caption("Informational only. Never eat wild mushrooms based on an app prediction.")
 
         with tab_conf:
-            st.markdown("**Top-K probabilities**")
-            chart_df = probs_series.head(top_k).to_frame("probability")
+            st.markdown("**Confidence**")
+            chart_df = probs_series.to_frame("probability")
             st.bar_chart(chart_df)
             st.dataframe(
                 pd.DataFrame({
@@ -515,22 +354,13 @@ if uploaded and run:
                 }),
                 use_container_width=True,
             )
-            api_cmp = st.session_state.get("_api_compare")
-            if api_cmp and compare_mode:
-                a = api_cmp["A"]; b = api_cmp["B"]
-                cmp_df = pd.DataFrame([
-                    {"source": "API A", "species": a["species"], "confidence": a["confidence"]} if a else {"source": "API A", "species": "—", "confidence": 0.0},
-                    {"source": "API B", "species": b["species"], "confidence": b["confidence"]} if b else {"source": "API B", "species": "—", "confidence": 0.0},
-                ])
-                st.markdown("**API comparison**")
-                st.dataframe(cmp_df, use_container_width=True)
+            # Single API; comparison table removed
 
         with tab_about:
             st.markdown(
                 """
-                **Pattern from lesson:** Frontend (Streamlit) → Requests → API → JSON → Display
-                **Fallback:** Local TensorFlow inference for offline demo
-                **Pipeline:** *Species → Edibility (deterministic)* with a **safety threshold** (abstain)
+                Frontend (Streamlit) → ViT API → JSON → Display
+                Pipeline: Species → Edibility with a safety threshold (abstain)
                 """
             )
         with tab_map:
