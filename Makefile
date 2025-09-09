@@ -40,6 +40,9 @@ api_health:
 run_vit_api:
 	uvicorn MUSHROOM.api.VIT_API:app --reload --port 8000
 
+run_vit_api_noreload:
+	uvicorn MUSHROOM.api.VIT_API:app --port 8000
+
 #======================#
 #          GCP         #
 #======================#

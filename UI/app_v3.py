@@ -9,6 +9,8 @@ import pandas as pd
 from PIL import Image
 import streamlit as st
 import pydeck as pdk
+import time
+import threading
 
 # ---------- PATHS ----------
 # Resolve project root as the repo root (one level up from UI/)
@@ -197,7 +199,7 @@ def _parse_confidence_to_float01(val) -> float:
         pass
     return 0.0
 
-def call_api(api_url: str, image_bytes: bytes) -> Dict:
+def call_api(api_url: str, image_bytes: bytes, timeout_s: float = 30.0) -> Dict:
     """
     Calls the ViT API and normalizes the response into:
         {"species": str, "confidence": float 0..1, "edibility": Optional[str]}
@@ -206,7 +208,7 @@ def call_api(api_url: str, image_bytes: bytes) -> Dict:
     """
     import requests
     files = {"file": ("upload.jpg", image_bytes, "image/jpeg")}
-    r = requests.post(api_url, files=files, timeout=30)
+    r = requests.post(api_url, files=files, timeout=timeout_s)
     r.raise_for_status()
     data = r.json()
 
@@ -231,6 +233,10 @@ with st.sidebar:
     st.header("Settings")
     with st.expander("ViT API", expanded=True):
         vit_api_url = st.text_input("Endpoint", "http://127.0.0.1:8000/predict/", help="Your ViT FastAPI predict endpoint")
+        request_timeout_s = st.number_input(
+            "Request timeout (s)", min_value=5, max_value=180, value=60, step=5,
+            help="Increase if the API is cold-starting or downloading weights."
+        )
 
     with st.expander("Safety & Display", expanded=True):
         conf_threshold = st.slider("Safety threshold (abstain below)", 0.50, 0.99, 0.85, 0.01)
@@ -286,24 +292,62 @@ with right:
 
 # ---------- INFERENCE ----------
 if uploaded and run:
-    with st.spinner("Predicting…"):
-        try:
-            if st.session_state.get("img_bytes") is None:
-                # store once for API path reuse
-                st.session_state["img_bytes"] = uploaded.getvalue()
-            if st.session_state.get("img_pil") is None:
-                st.session_state["img_pil"] = img
+    # Progress bar for image processing/inference (rendered where the button card was)
+    progress_bar = (placeholder.progress(0) if 'placeholder' in locals() else st.progress(0))
+    status_text = st.empty()
+    try:
+        # Prep session state once
+        if st.session_state.get("img_bytes") is None:
+            status_text.caption("Preparing image…")
+            st.session_state["img_bytes"] = uploaded.getvalue()
+            progress_bar.progress(10)
+        if st.session_state.get("img_pil") is None:
+            st.session_state["img_pil"] = img
 
-            # Single ViT API call
-            api_res = call_api(vit_api_url.strip(), st.session_state["img_bytes"])
-            top_species = str(api_res.get("species", "unknown"))
-            top_prob = float(api_res.get("confidence", 0.0))
-            api_edibility = api_res.get("edibility")  # may be 'edible'/'not edible'
-            probs_series = pd.Series({top_species: top_prob}).sort_values(ascending=False)
+        # Prepare bytes locally (avoid reading session_state from a thread)
+        img_bytes_local = st.session_state["img_bytes"]
 
-        except Exception as e:
-            st.error(f"Prediction failed: {e}")
-            probs_series = pd.Series(dtype=float)
+        # Run API call in a background thread so we can animate progress
+        api_res_holder = {}
+        api_err_holder = {}
+
+        def _worker(api_url: str, payload: bytes, timeout_s: float):
+            try:
+                api_res_holder["res"] = call_api(api_url, payload, timeout_s=timeout_s)
+            except Exception as _e:
+                api_err_holder["err"] = _e
+
+        status_text.caption("Contacting model API…")
+        t = threading.Thread(target=_worker, args=(vit_api_url.strip(), img_bytes_local, float(request_timeout_s)), daemon=True)
+        t.start()
+
+        start = time.time()
+        timeout_s = float(request_timeout_s)
+        # Animate progress to 95% while waiting
+        while t.is_alive():
+            elapsed = time.time() - start
+            pct = min(95, int((elapsed / timeout_s) * 95))
+            progress_bar.progress(max(15, pct))
+            time.sleep(0.1)
+
+        # Thread finished; handle result
+        if "err" in api_err_holder:
+            raise api_err_holder["err"]
+
+        progress_bar.progress(100)
+        status_text.caption("Parsing results…")
+        api_res = api_res_holder.get("res", {})
+        top_species = str(api_res.get("species", "unknown"))
+        top_prob = float(api_res.get("confidence", 0.0))
+        api_edibility = api_res.get("edibility")  # may be 'edible'/'not edible'
+        probs_series = pd.Series({top_species: top_prob}).sort_values(ascending=False)
+
+    except Exception as e:
+        st.error(f"Prediction failed: {e}")
+        probs_series = pd.Series(dtype=float)
+    finally:
+        progress_bar.empty()
+        status_text.empty()
 
     if not probs_series.empty:
         tab_res, tab_conf, tab_about, tab_map = st.tabs(["Result", "Confidence", "About", "Map"])
